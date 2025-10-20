@@ -99,25 +99,6 @@ const DApp = () => {
             </p>
           </div>
 
-          {/* Wallet Connection Banner */}
-          <Card className="mb-8 p-6 bg-gradient-card border-border">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="bg-primary/10 p-3 rounded-lg">
-                  <Wallet className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-bold">Connect Your Wallet</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Connect to start placing encrypted bets
-                  </p>
-                </div>
-              </div>
-              <Button className="bg-gradient-accent hover:opacity-90">
-                Connect Wallet
-              </Button>
-            </div>
-          </Card>
 
           <div className="grid lg:grid-cols-3 gap-8">
             {/* Match List */}

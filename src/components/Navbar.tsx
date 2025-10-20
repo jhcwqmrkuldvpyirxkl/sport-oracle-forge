@@ -23,9 +23,7 @@ const Navbar = () => {
 
           {/* Navigation Links */}
           <div className="flex items-center gap-4">
-            <Link to="/dapp">
-              <Button className="bg-gradient-accent hover:opacity-90">Launch DApp</Button>
-            </Link>
+            <Button className="bg-gradient-accent hover:opacity-90">Connect Wallet</Button>
           </div>
         </div>
       </div>
