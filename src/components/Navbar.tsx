@@ -23,9 +23,6 @@ const Navbar = () => {
 
           {/* Navigation Links */}
           <div className="flex items-center gap-4">
-            <Link to="/">
-              <Button variant="ghost">Home</Button>
-            </Link>
             <Link to="/dapp">
               <Button className="bg-gradient-accent hover:opacity-90">Launch DApp</Button>
             </Link>
