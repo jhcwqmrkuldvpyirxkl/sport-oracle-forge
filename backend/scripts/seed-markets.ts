@@ -19,9 +19,9 @@ const SEED_MARKETS: MarketSeed[] = [
 ];
 
 async function main() {
-  const contractAddress = process.env.SPORT_ORACLE_ADDRESS;
+  const contractAddress = process.env.VITE_CONTRACT_ADDRESS;
   if (!contractAddress) {
-    throw new Error("Missing SPORT_ORACLE_ADDRESS environment variable");
+    throw new Error("Missing VITE_CONTRACT_ADDRESS environment variable");
   }
 
   const [operator] = await ethers.getSigners();
