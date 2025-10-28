@@ -1,0 +1,29 @@
+{
+  "name": "sport-oracle-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "hardhat compile",
+    "clean": "hardhat clean",
+    "test": "hardhat test",
+    "deploy:sepolia": "hardhat run scripts/deploy.ts --network sepolia",
+    "deploy:local": "hardhat run scripts/deploy.ts --network hardhat",
+    "seed:sepolia": "hardhat run scripts/seed-markets.ts --network sepolia",
+    "seed:local": "hardhat run scripts/seed-markets.ts --network hardhat",
+    "verify": "hardhat run scripts/verify-contract.ts --network sepolia",
+    "export-abi": "hardhat run scripts/export-abi.ts"
+  },
+  "dependencies": {
+    "@fhevm/solidity": "^0.8.0",
+    "@openzeppelin/contracts": "^5.1.0"
+  },
+  "devDependencies": {
+    "@fhevm/hardhat-plugin": "^0.1.0",
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@typechain/hardhat": "^9.0.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}

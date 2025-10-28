@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { Trophy } from "lucide-react";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 
 /**
  * Main navigation bar component
@@ -23,7 +23,7 @@ const Navbar = () => {
 
           {/* Navigation Links */}
           <div className="flex items-center gap-4">
-            <Button className="bg-gradient-accent hover:opacity-90">Connect Wallet</Button>
+            <ConnectButton chainStatus="icon" showBalance={false} />
           </div>
         </div>
       </div>

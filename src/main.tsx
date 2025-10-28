@@ -1,5 +1,11 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import "@rainbow-me/rainbowkit/styles.css";
+import { AppProviders } from "./providers/AppProviders";
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <AppProviders>
+    <App />
+  </AppProviders>
+);

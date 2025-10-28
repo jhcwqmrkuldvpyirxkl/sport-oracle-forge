@@ -1,232 +1,233 @@
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { 
-  Trophy, 
-  Calendar, 
-  Clock, 
-  Users, 
-  Wallet,
-  TrendingUp,
-  Shield
-} from "lucide-react";
+import { useMemo, useState } from "react";
 import Navbar from "@/components/Navbar";
-import { useToast } from "@/hooks/use-toast";
+import { MarketList } from "@/components/app/MarketList";
+import { BetSlipPanel } from "@/components/app/BetSlipPanel";
+import { BetsHistoryTable, BetHistoryItem } from "@/components/app/BetsHistoryTable";
+import { useMarketsQuery } from "@/hooks/useMarkets";
+import { useBetSlipStore } from "@/store/useBetSlipStore";
+import { useAccount, usePublicClient, useWriteContract } from "wagmi";
+import { useToast } from "@/components/ui/use-toast";
+import { encryptBetPayload, buildCommitment } from "@/lib/fhe";
+import { sportOracleAbi, sportOracleAddress } from "@/lib/contracts";
+import { hexlify, parseEther } from "ethers";
+import { Card } from "@/components/ui/card";
 
-/**
- * DApp page component
- * Main betting interface with match listings
- */
 const DApp = () => {
   const { toast } = useToast();
-  const [selectedMatch, setSelectedMatch] = useState<string | null>(null);
-  const [betAmount, setBetAmount] = useState("");
-  const [prediction, setPrediction] = useState<number | null>(null);
+  const { data: markets = [], isLoading, refetch } = useMarketsQuery();
+  const publicClient = usePublicClient();
+  const { address, isConnected } = useAccount();
+  const { writeContractAsync } = useWriteContract();
+  const [history, setHistory] = useState<BetHistoryItem[]>([]);
 
-  // Mock match data
-  const matches = [
-    {
-      id: "1",
-      title: "Manchester United vs Liverpool",
-      bettingDeadline: "2025-01-25 14:00",
-      matchTime: "2025-01-25 15:00",
-      status: "Open",
-      totalBettors: 156,
-      poolSize: "45.8 ETH"
-    },
-    {
-      id: "2",
-      title: "Real Madrid vs Barcelona",
-      bettingDeadline: "2025-01-26 18:00",
-      matchTime: "2025-01-26 19:00",
-      status: "Open",
-      totalBettors: 203,
-      poolSize: "67.2 ETH"
-    },
-    {
-      id: "3",
-      title: "Bayern Munich vs Borussia Dortmund",
-      bettingDeadline: "2025-01-27 12:00",
-      matchTime: "2025-01-27 13:00",
-      status: "Open",
-      totalBettors: 89,
-      poolSize: "32.1 ETH"
-    }
-  ];
+  const {
+    selectedMarketId,
+    selectedOutcome,
+    stakeEther,
+    setSelectedMarket,
+    setSelectedOutcome,
+    setStakeEther,
+    isEncrypting,
+    setEncrypting
+  } = useBetSlipStore((state) => ({
+    selectedMarketId: state.selectedMarketId,
+    selectedOutcome: state.selectedOutcome,
+    stakeEther: state.stakeEther,
+    setSelectedMarket: state.setSelectedMarket,
+    setSelectedOutcome: state.setSelectedOutcome,
+    setStakeEther: state.setStakeEther,
+    isEncrypting: state.isEncrypting,
+    setEncrypting: state.setEncrypting
+  }));
 
-  const handlePlaceBet = () => {
-    if (!betAmount || prediction === null) {
+  const selectedMarket = useMemo(
+    () => markets.find((market) => market.id === selectedMarketId),
+    [markets, selectedMarketId]
+  );
+
+  const handleSelectMarket = (marketId: bigint) => {
+    setSelectedMarket(marketId);
+    setSelectedOutcome(undefined);
+    setStakeEther("");
+  };
+
+  const handlePlaceBet = async () => {
+    if (!isConnected || !address) {
       toast({
-        title: "Missing Information",
-        description: "Please enter bet amount and select a prediction",
+        title: "Wallet required",
+        description: "Connect a wallet to place an encrypted bet.",
         variant: "destructive"
       });
       return;
     }
 
-    toast({
-      title: "Bet Placed! 🎉",
-      description: `Your encrypted bet of ${betAmount} ETH has been submitted`,
-    });
+    if (!selectedMarketId) {
+      toast({
+        title: "Select a market",
+        description: "Choose a live market to continue.",
+        variant: "destructive"
+      });
+      return;
+    }
 
-    // Reset form
-    setBetAmount("");
-    setPrediction(null);
-    setSelectedMatch(null);
+    if (selectedOutcome === undefined) {
+      toast({
+        title: "Prediction missing",
+        description: "Choose an outcome before encrypting.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const stakeValue = stakeEther.trim();
+    if (!stakeValue) {
+      toast({
+        title: "Enter stake",
+        description: "Provide a stake in ETH to encrypt.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    let stakeWei: bigint;
+    try {
+      stakeWei = parseEther(stakeValue);
+    } catch {
+      toast({
+        title: "Invalid amount",
+        description: "Stake must be a valid ETH value.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (stakeWei <= 0n) {
+      toast({
+        title: "Stake too small",
+        description: "Increase the amount above zero.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (sportOracleAddress === "0x0000000000000000000000000000000000000000") {
+      toast({
+        title: "Contract unavailable",
+        description: "Configure VITE_CONTRACT_ADDRESS to broadcast transactions.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      setEncrypting(true);
+
+      const { encryptedOutcome, encryptedStake, proof } = await encryptBetPayload(
+        sportOracleAddress,
+        address,
+        selectedOutcome,
+        stakeWei
+      );
+
+      const commitment = buildCommitment(
+        encryptedOutcome as `0x${string}`,
+        encryptedStake as `0x${string}`,
+        address
+      );
+
+      const txHash = await writeContractAsync({
+        address: sportOracleAddress,
+        abi: sportOracleAbi,
+        functionName: "placeBet",
+        args: [selectedMarketId, encryptedOutcome, encryptedStake, hexlify(proof), commitment],
+        value: stakeWei
+      });
+
+      setHistory((prev) => [
+        {
+          marketId: selectedMarketId,
+          outcome: selectedOutcome,
+          stakeWei,
+          txHash,
+          createdAt: Date.now(),
+          status: "pending"
+        },
+        ...prev
+      ]);
+
+      toast({
+        title: "Encrypted bet submitted",
+        description: "Waiting for confirmation from the network."
+      });
+
+      setSelectedOutcome(undefined);
+      setStakeEther("");
+
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash: txHash });
+        setHistory((prev) =>
+          prev.map((entry) => (entry.txHash === txHash ? { ...entry, status: "success" } : entry))
+        );
+        await refetch();
+      }
+    } catch (error) {
+      setHistory((prev) =>
+        prev.map((entry) => (entry.status === "pending" ? { ...entry, status: "failed" } : entry))
+      );
+
+      toast({
+        title: "Encryption failed",
+        description: error instanceof Error ? error.message : "Unable to encrypt bet payload.",
+        variant: "destructive"
+      });
+    } finally {
+      setEncrypting(false);
+    }
   };
-
-  const predictionOptions = [
-    { value: 0, label: "Team A Win" },
-    { value: 1, label: "Team B Win" },
-    { value: 2, label: "Draw" }
-  ];
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
       <div className="pt-24 pb-12 px-4">
-        <div className="container mx-auto">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-primary to-primary-glow bg-clip-text text-transparent">
-              Live Matches
+        <div className="container mx-auto space-y-8">
+          <header className="space-y-2">
+            <p className="text-sm uppercase tracking-wide text-primary">Encrypted Prediction Markets</p>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-primary-glow to-primary bg-clip-text text-transparent">
+              Bet Privately. Win Transparently.
             </h1>
-            <p className="text-muted-foreground">
-              Place encrypted bets on upcoming sports matches
+            <p className="text-muted-foreground max-w-2xl">
+              Compose fully encrypted wagers with Zama fhEVM. Stakes and predictions stay private until the Oracle
+              decrypts settlement outcomes.
             </p>
-          </div>
+          </header>
 
-
-          <div className="grid lg:grid-cols-3 gap-8">
-            {/* Match List */}
+          <div className="grid gap-8 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-4">
-              {matches.map((match) => (
-                <Card 
-                  key={match.id}
-                  className={`p-6 bg-gradient-card border-border hover:shadow-glow transition-all cursor-pointer ${
-                    selectedMatch === match.id ? 'ring-2 ring-primary' : ''
-                  }`}
-                  onClick={() => setSelectedMatch(match.id)}
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Trophy className="h-5 w-5 text-primary" />
-                        <h3 className="font-bold text-lg">{match.title}</h3>
-                      </div>
-                      <Badge variant="outline" className="text-primary border-primary">
-                        {match.status}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Calendar className="h-4 w-4" />
-                      <span>Deadline: {match.bettingDeadline}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Clock className="h-4 w-4" />
-                      <span>Match: {match.matchTime}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-4 border-t border-border">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Users className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">{match.totalBettors} bettors</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <TrendingUp className="h-4 w-4 text-primary" />
-                      <span className="font-bold text-primary">{match.poolSize}</span>
-                    </div>
-                  </div>
-                </Card>
-              ))}
+              <MarketList
+                markets={markets}
+                isLoading={isLoading}
+                selectedMarketId={selectedMarketId}
+                onSelect={handleSelectMarket}
+              />
             </div>
-
-            {/* Betting Panel */}
-            <div>
-              <Card className="p-6 bg-gradient-card border-border sticky top-24">
-                <div className="flex items-center gap-2 mb-6">
-                  <Shield className="h-5 w-5 text-primary" />
-                  <h3 className="font-bold text-lg">Place Encrypted Bet</h3>
-                </div>
-
-                {selectedMatch ? (
-                  <div className="space-y-6">
-                    {/* Match Info */}
-                    <div className="p-4 bg-muted/50 rounded-lg">
-                      <p className="text-sm text-muted-foreground mb-1">Selected Match</p>
-                      <p className="font-medium">
-                        {matches.find(m => m.id === selectedMatch)?.title}
-                      </p>
-                    </div>
-
-                    {/* Bet Amount */}
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">
-                        Bet Amount (ETH)
-                      </label>
-                      <Input 
-                        type="number"
-                        placeholder="0.1"
-                        value={betAmount}
-                        onChange={(e) => setBetAmount(e.target.value)}
-                        className="bg-background"
-                      />
-                    </div>
-
-                    {/* Prediction */}
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">
-                        Your Prediction
-                      </label>
-                      <div className="grid gap-2">
-                        {predictionOptions.map((option) => (
-                          <Button
-                            key={option.value}
-                            variant={prediction === option.value ? "default" : "outline"}
-                            className={prediction === option.value ? "bg-gradient-accent" : ""}
-                            onClick={() => setPrediction(option.value)}
-                          >
-                            {option.label}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Privacy Notice */}
-                    <div className="p-3 bg-primary/10 rounded-lg">
-                      <p className="text-xs text-muted-foreground">
-                        <Shield className="h-3 w-3 inline mr-1" />
-                        Your bet will be fully encrypted using FHE technology
-                      </p>
-                    </div>
-
-                    {/* Submit Button */}
-                    <Button 
-                      className="w-full bg-gradient-accent hover:opacity-90"
-                      size="lg"
-                      onClick={handlePlaceBet}
-                    >
-                      Place Encrypted Bet
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
-                    <p className="text-muted-foreground">
-                      Select a match to place your bet
-                    </p>
-                  </div>
-                )}
-              </Card>
-            </div>
+            <BetSlipPanel
+              selectedMarket={selectedMarket}
+              isEncrypting={isEncrypting}
+              onPlaceBet={handlePlaceBet}
+              walletConnected={isConnected}
+            />
           </div>
+
+          <Card className="p-6 bg-gradient-card border-border space-y-4">
+            <div>
+              <h2 className="text-xl font-semibold text-foreground">Encrypted Bet History</h2>
+              <p className="text-sm text-muted-foreground">
+                Recently submitted bets with anonymised outcomes. Decrypted payouts appear once the gateway finalises a
+                settlement.
+              </p>
+            </div>
+            <BetsHistoryTable entries={history} />
+          </Card>
         </div>
       </div>
     </div>
