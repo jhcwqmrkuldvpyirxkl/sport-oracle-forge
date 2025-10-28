@@ -25,6 +25,18 @@ export const MarketList = ({ markets, selectedMarketId, onSelect, isLoading }: M
     );
   }
 
+  if (!markets || markets.length === 0) {
+    return (
+      <Card className="p-8 bg-gradient-card border-border text-center">
+        <ShieldCheck className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+        <h3 className="text-lg font-semibold text-foreground mb-2">No Markets Available</h3>
+        <p className="text-sm text-muted-foreground">
+          Markets will appear here once they are created on-chain.
+        </p>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {markets.map((market) => {

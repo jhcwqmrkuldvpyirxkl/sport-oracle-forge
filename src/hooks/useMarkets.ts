@@ -34,56 +34,63 @@ export function useMarketsQuery() {
   return useQuery({
     queryKey: ["sport-oracle", "markets"],
     queryFn: async (): Promise<MarketSummary[]> => {
+      // Return fallback markets if no client or contract configured
       if (!client || sportOracleAddress === "0x0000000000000000000000000000000000000000") {
         return FALLBACK_MARKETS;
       }
 
-      const ids = (await client.readContract({
-        address: sportOracleAddress,
-        abi: sportOracleAbi,
-        functionName: "getMarketIds"
-      })) as bigint[];
+      try {
+        // Fetch market IDs from contract
+        const ids = (await client.readContract({
+          address: sportOracleAddress,
+          abi: sportOracleAbi,
+          functionName: "getMarketIds"
+        })) as bigint[];
 
-      if (!ids.length) {
+        // Return fallback if no markets found
+        if (!ids.length) {
+          return FALLBACK_MARKETS;
+        }
+
+        // Fetch detailed market data for each ID
+        const markets = await Promise.all(
+          ids.map(async (id) => {
+            const raw = (await client.readContract({
+              address: sportOracleAddress,
+              abi: sportOracleAbi,
+              functionName: "getMarket",
+              args: [id]
+            })) as {
+              marketId: bigint;
+              outcomeCount: number;
+              startTime: bigint;
+              lockTime: bigint;
+              settled: boolean;
+              winningOutcome: number;
+              escrowBalance: bigint;
+              payoutRatio: bigint;
+              decryptionPending: boolean;
+            };
+
+            return {
+              id: raw.marketId,
+              outcomeCount: raw.outcomeCount,
+              startTime: Number(raw.startTime),
+              lockTime: Number(raw.lockTime),
+              isSettled: raw.settled,
+              winningOutcome: raw.winningOutcome,
+              escrowBalance: raw.escrowBalance,
+              payoutRatio: raw.payoutRatio,
+              decryptionPending: raw.decryptionPending
+            };
+          })
+        );
+
+        return markets.sort((a, b) => Number(a.id - b.id));
+      } catch (error) {
+        console.error("[useMarketsQuery] Error fetching markets:", error);
         return FALLBACK_MARKETS;
       }
-
-      const markets = await Promise.all(
-        ids.map(async (id) => {
-          const raw = (await client.readContract({
-            address: sportOracleAddress,
-            abi: sportOracleAbi,
-            functionName: "getMarket",
-            args: [id]
-          })) as readonly [
-            bigint,
-            number,
-            bigint,
-            bigint,
-            boolean,
-            number,
-            bigint,
-            bigint,
-            boolean
-          ];
-
-          const [_id, outcomeCount, startTime, lockTime, settled, winningOutcome, escrow, ratio, pending] = raw;
-
-          return {
-            id,
-            outcomeCount,
-            startTime: Number(startTime),
-            lockTime: Number(lockTime),
-            isSettled: settled,
-            winningOutcome,
-            escrowBalance: escrow,
-            payoutRatio: ratio,
-            decryptionPending: pending
-          };
-        })
-      );
-
-      return markets.sort((a, b) => Number(a.id - b.id));
     },
     staleTime: 10_000,
     refetchInterval: 15_000

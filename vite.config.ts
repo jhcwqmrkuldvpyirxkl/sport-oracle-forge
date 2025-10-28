@@ -9,9 +9,12 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     // Required headers for FHE SDK (SharedArrayBuffer support)
+    // Note: These headers may block some third-party services (analytics, etc)
+    // This is a known trade-off for FHE functionality
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
