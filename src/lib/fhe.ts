@@ -1,4 +1,4 @@
-import { AbiCoder, keccak256 } from "ethers";
+import { AbiCoder, keccak256, hexlify } from "ethers";
 
 // Based on Zama reference implementation
 // Using Relayer SDK from CDN to bypass bundling issues
@@ -98,9 +98,27 @@ export async function encryptBetPayload(
   input.add64(stakeWei);
   const { handles, inputProof } = await input.encrypt();
 
+  // Ensure handles are properly formatted as hex strings
+  const ensureHexString = (value: any): `0x${string}` => {
+    if (typeof value === "string") {
+      return value.startsWith("0x") ? value as `0x${string}` : `0x${value}` as `0x${string}`;
+    }
+    // If it's a Uint8Array, convert to hex using ethers hexlify
+    if (value instanceof Uint8Array) {
+      return hexlify(value) as `0x${string}`;
+    }
+    // If it's a bigint, convert to hex
+    if (typeof value === "bigint") {
+      return `0x${value.toString(16).padStart(64, "0")}` as `0x${string}`;
+    }
+    // Fallback: try to convert to string
+    console.warn(`[FHE] Unexpected handle type: ${typeof value}, value:`, value);
+    return hexlify(value) as `0x${string}`;
+  };
+
   return {
-    encryptedOutcome: handles[0],
-    encryptedStake: handles[1],
+    encryptedOutcome: ensureHexString(handles[0]),
+    encryptedStake: ensureHexString(handles[1]),
     proof: inputProof
   };
 }
