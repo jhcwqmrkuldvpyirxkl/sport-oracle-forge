@@ -135,11 +135,14 @@ const DApp = () => {
         address
       );
 
+      // Handle proof conversion: CDN SDK may return string or Uint8Array
+      const proofHex = typeof proof === "string" ? proof : hexlify(proof);
+
       const txHash = await writeContractAsync({
         address: sportOracleAddress,
         abi: sportOracleAbi,
         functionName: "placeBet",
-        args: [selectedMarketId, encryptedOutcome, encryptedStake, hexlify(proof), commitment],
+        args: [selectedMarketId, encryptedOutcome, encryptedStake, proofHex, commitment],
         value: stakeWei
       });
 

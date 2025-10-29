@@ -1,5 +1,8 @@
 import { AbiCoder, keccak256 } from "ethers";
 
+// Based on Zama reference implementation
+// Using Relayer SDK from CDN to bypass bundling issues
+
 type EncryptedInputHandles = {
   handles: `0x${string}`[];
   inputProof: Uint8Array;
@@ -15,9 +18,6 @@ type FheInstance = {
   createEncryptedInput: (contract: `0x${string}`, bettor: `0x${string}`) => FheEncryptedInput;
 };
 
-type SdkModule = typeof import("@zama-fhe/relayer-sdk/bundle");
-
-let sdkPromise: Promise<SdkModule | null> | null = null;
 let fheInstance: FheInstance | null = null;
 let isMockMode = false;
 
@@ -48,17 +48,27 @@ const createMockInstance = (): FheInstance => ({
   }
 });
 
-async function loadSdk(): Promise<SdkModule | null> {
-  if (!sdkPromise) {
-    sdkPromise = import("@zama-fhe/relayer-sdk/bundle")
-      .then((module) => module)
-      .catch((error) => {
-        console.warn("FHE SDK unavailable. Falling back to mock encryption.", error);
-        isMockMode = true;
-        return null;
-      });
+async function loadSdkFromCdn() {
+  try {
+    console.log("[FHE] Loading Relayer SDK from CDN...");
+    // Load SDK from Zama CDN
+    const sdk: any = await import("https://cdn.zama.ai/relayer-sdk-js/0.2.0/relayer-sdk-js.js");
+    const { initSDK, createInstance, SepoliaConfig } = sdk;
+
+    console.log("[FHE] Initializing WASM...");
+    await initSDK();
+
+    console.log("[FHE] Creating FHE instance with Sepolia config");
+    const instance = await createInstance(SepoliaConfig);
+
+    console.log("[FHE] Instance created successfully");
+    return instance as FheInstance;
+  } catch (err: any) {
+    console.error("[FHE] SDK loading failed:", err);
+    console.warn("[FHE] Falling back to mock encryption");
+    isMockMode = true;
+    return null;
   }
-  return sdkPromise;
 }
 
 export async function ensureFheInstance(): Promise<FheInstance> {
@@ -66,14 +76,13 @@ export async function ensureFheInstance(): Promise<FheInstance> {
     return fheInstance;
   }
 
-  const sdk = await loadSdk();
-  if (!sdk) {
+  const instance = await loadSdkFromCdn();
+  if (!instance) {
     fheInstance = createMockInstance();
     return fheInstance;
   }
 
-  await sdk.initSDK();
-  fheInstance = (await sdk.createInstance(sdk.SepoliaConfig)) as FheInstance;
+  fheInstance = instance;
   return fheInstance;
 }
 
