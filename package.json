@@ -9,7 +9,8 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "postinstall": "mkdir -p public && cp node_modules/@zama-fhe/relayer-sdk/bundle/*.wasm public/"
+    "postinstall": "mkdir -p public && cp node_modules/@zama-fhe/relayer-sdk/bundle/*.wasm public/",
+    "commit": "bash scripts/auto-commit.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
