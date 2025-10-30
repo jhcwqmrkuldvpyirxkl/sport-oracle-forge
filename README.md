@@ -6,6 +6,8 @@
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.24-blue)](https://soliditylang.org/)
 [![Hardhat](https://img.shields.io/badge/Built%20with-Hardhat-yellow)](https://hardhat.org/)
 
+**🚀 Live Demo**: [https://sport-oracle.vercel.app](https://sport-oracle.vercel.app)
+
 ---
 
 ## 🎯 Overview
@@ -187,7 +189,12 @@ SportOracle/
 
 ---
 
-## 🔗 Deployed Contracts
+## 🔗 Deployed Contracts & Demo
+
+### Live Application
+- **Production URL**: [https://sport-oracle.vercel.app](https://sport-oracle.vercel.app)
+- **Deployed on**: Vercel
+- **Network**: Sepolia Testnet
 
 ### Sepolia Testnet
 
