@@ -1,24 +1,34 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Navbar from "@/components/Navbar";
 import { MarketList } from "@/components/app/MarketList";
 import { BetSlipPanel } from "@/components/app/BetSlipPanel";
 import { BetsHistoryTable, BetHistoryItem } from "@/components/app/BetsHistoryTable";
 import { useMarketsQuery } from "@/hooks/useMarkets";
 import { useBetSlipStore } from "@/store/useBetSlipStore";
-import { useAccount, usePublicClient, useWriteContract } from "wagmi";
+import { useAccount, useChainId, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { useToast } from "@/components/ui/use-toast";
 import { encryptBetPayload, buildCommitment } from "@/lib/fhe";
 import { sportOracleAbi, sportOracleAddress } from "@/lib/contracts";
-import { hexlify, parseEther } from "ethers";
+import { parseEther, toHex } from "viem";
 import { Card } from "@/components/ui/card";
+import { useFHE } from "@/hooks/useFHE";
+import { Button } from "@/components/ui/button";
+import { EncryptionStatusPanel } from "@/components/app/EncryptionStatusPanel";
+import { AlertTriangle, Network } from "lucide-react";
+import { sepolia } from "wagmi/chains";
+import { hardhat } from "@/config/wagmi";
 
 const DApp = () => {
   const { toast } = useToast();
   const { data: markets = [], isLoading, refetch } = useMarketsQuery();
   const publicClient = usePublicClient();
   const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
   const { writeContractAsync } = useWriteContract();
   const [history, setHistory] = useState<BetHistoryItem[]>([]);
+  const { initialize, reset: resetFhe } = useFHE();
+  const [isRetryingFhe, setRetryingFhe] = useState(false);
 
   const {
     selectedMarketId,
@@ -45,10 +55,50 @@ const DApp = () => {
     [markets, selectedMarketId]
   );
 
+  // Accept both Hardhat local (31337) and Sepolia (11155111) networks
+  const supportedChainIds = [hardhat.id, sepolia.id];
+  const requiresNetworkSwitch = Boolean(
+    isConnected && chainId !== undefined && !supportedChainIds.includes(chainId)
+  );
+  const networkReady = !requiresNetworkSwitch;
+
   const handleSelectMarket = (marketId: bigint) => {
     setSelectedMarket(marketId);
     setSelectedOutcome(undefined);
     setStakeEther("");
+  };
+
+  useEffect(() => {
+    if (!isConnected) {
+      return;
+    }
+    initialize().catch((error) => {
+      console.error("[FHE] Warm-up failed:", error);
+    });
+  }, [initialize, isConnected]);
+
+  const handleRetryFhe = async () => {
+    setRetryingFhe(true);
+    try {
+      resetFhe();
+      await initialize();
+    } finally {
+      setRetryingFhe(false);
+    }
+  };
+
+  const handleSwitchNetwork = async () => {
+    try {
+      // Try Hardhat local first if in development, otherwise Sepolia
+      const targetChainId = import.meta.env.DEV ? hardhat.id : sepolia.id;
+      await switchChainAsync({ chainId: targetChainId });
+    } catch (error) {
+      toast({
+        title: "Network switch failed",
+        description: error instanceof Error ? error.message : "Unable to change network.",
+        variant: "destructive"
+      });
+    }
   };
 
   const handlePlaceBet = async () => {
@@ -56,6 +106,16 @@ const DApp = () => {
       toast({
         title: "Wallet required",
         description: "Connect a wallet to place an encrypted bet.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (requiresNetworkSwitch) {
+      const networkName = import.meta.env.DEV ? "Hardhat Local or Sepolia" : "Sepolia";
+      toast({
+        title: "Wrong network",
+        description: `Switch to ${networkName} before placing an encrypted bet.`,
         variant: "destructive"
       });
       return;
@@ -120,6 +180,7 @@ const DApp = () => {
     }
 
     try {
+      await initialize();
       setEncrypting(true);
 
       const { encryptedOutcome, encryptedStake, proof } = await encryptBetPayload(
@@ -136,7 +197,7 @@ const DApp = () => {
       );
 
       // Handle proof conversion: CDN SDK may return string or Uint8Array
-      const proofHex = typeof proof === "string" ? proof : hexlify(proof);
+      const proofHex = typeof proof === "string" ? proof : toHex(proof);
 
       const txHash = await writeContractAsync({
         address: sportOracleAddress,
@@ -204,6 +265,36 @@ const DApp = () => {
             </p>
           </header>
 
+          <EncryptionStatusPanel onRetry={handleRetryFhe} isRetrying={isRetryingFhe} />
+
+          {requiresNetworkSwitch && (
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-background/80 flex items-center justify-center shadow-inner">
+                  <AlertTriangle className="h-5 w-5 text-amber-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Network className="h-4 w-4 text-amber-400" />
+                    Wrong Network Detected
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    SportOracle is deployed on {import.meta.env.DEV ? "Hardhat Local (31337) or Sepolia" : "Sepolia"}. Switch networks to continue placing encrypted bets.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto border-amber-500/60 text-amber-400 hover:bg-amber-500/10"
+                onClick={handleSwitchNetwork}
+                disabled={isSwitchingChain}
+              >
+                {isSwitchingChain ? "Switching..." : `Switch to ${import.meta.env.DEV ? "Hardhat Local" : "Sepolia"}`}
+              </Button>
+            </div>
+          )}
+
           <div className="grid gap-8 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-4">
               <MarketList
@@ -218,6 +309,8 @@ const DApp = () => {
               isEncrypting={isEncrypting}
               onPlaceBet={handlePlaceBet}
               walletConnected={isConnected}
+              networkReady={networkReady}
+              onSwitchNetwork={requiresNetworkSwitch ? handleSwitchNetwork : undefined}
             />
           </div>
 

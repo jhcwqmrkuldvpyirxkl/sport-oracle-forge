@@ -10,11 +10,20 @@ type BetSlipPanelProps = {
   isEncrypting: boolean;
   onPlaceBet: () => Promise<void>;
   walletConnected: boolean;
+  networkReady: boolean;
+  onSwitchNetwork?: () => void;
 };
 
 const OUTCOME_LABELS = ["Team A Victory", "Team B Victory", "Draw"];
 
-export const BetSlipPanel = ({ selectedMarket, isEncrypting, onPlaceBet, walletConnected }: BetSlipPanelProps) => {
+export const BetSlipPanel = ({
+  selectedMarket,
+  isEncrypting,
+  onPlaceBet,
+  walletConnected,
+  networkReady,
+  onSwitchNetwork
+}: BetSlipPanelProps) => {
   const {
     selectedOutcome,
     stakeEther,
@@ -41,7 +50,7 @@ export const BetSlipPanel = ({ selectedMarket, isEncrypting, onPlaceBet, walletC
     }));
   }, [selectedMarket]);
 
-  const disabled = !selectedMarket || isEncrypting;
+  const disabled = !selectedMarket || isEncrypting || !networkReady;
 
   const handleSubmit = async () => {
     if (disabled || !selectedMarket) return;
@@ -105,6 +114,22 @@ export const BetSlipPanel = ({ selectedMarket, isEncrypting, onPlaceBet, walletC
             <p className="text-xs text-muted-foreground text-center">
               Connect a wallet to transmit encrypted handles on-chain.
             </p>
+          )}
+
+          {walletConnected && !networkReady && (
+            <div className="text-xs text-amber-500 text-center space-y-2">
+              <p>Switch to the Sepolia testnet to submit encrypted bets.</p>
+              {onSwitchNetwork && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-amber-500/60 text-amber-500 hover:bg-amber-500/10"
+                  onClick={onSwitchNetwork}
+                >
+                  Switch Network
+                </Button>
+              )}
+            </div>
           )}
         </div>
       )}

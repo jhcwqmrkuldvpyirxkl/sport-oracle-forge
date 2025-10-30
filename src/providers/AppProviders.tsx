@@ -1,7 +1,7 @@
 import { ReactNode, useMemo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
-import { RainbowKitProvider, darkTheme } from "@rainbow-me/rainbowkit";
+import { RainbowKitProvider, lightTheme } from "@rainbow-me/rainbowkit";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { wagmiConfig } from "@/config/wagmi";
 import "@rainbow-me/rainbowkit/styles.css";
@@ -33,9 +33,9 @@ export const AppProviders = ({ children }: AppProvidersProps) => {
           <RainbowKitProvider
             modalSize="compact"
             locale="en-US" // Force English to avoid incomplete translations
-            theme={darkTheme({
+            theme={lightTheme({
               accentColor: "#F97316",
-              accentColorForeground: "#030712",
+              accentColorForeground: "#FFFFFF",
               borderRadius: "medium"
             })}
           >

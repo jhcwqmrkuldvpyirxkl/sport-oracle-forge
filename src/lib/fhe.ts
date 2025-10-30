@@ -1,138 +1,168 @@
-import { AbiCoder, keccak256, hexlify } from "ethers";
+import { encodeAbiParameters, keccak256, toHex } from "viem";
+import { useEncryptionStore } from "@/store/useEncryptionStore";
 
-// Based on Zama reference implementation
-// Using Relayer SDK from CDN to bypass bundling issues
+type RelayerModule = typeof import("@zama-fhe/relayer-sdk/bundle");
+type FheInstance = Awaited<ReturnType<RelayerModule["createInstance"]>>;
 
 type EncryptedInputHandles = {
-  handles: `0x${string}`[];
-  inputProof: Uint8Array;
+	handles: `0x${string}`[];
+	inputProof: Uint8Array;
 };
 
 type FheEncryptedInput = {
-  add32: (value: number) => void;
-  add64: (value: bigint) => void;
-  encrypt: () => Promise<EncryptedInputHandles>;
+	add32: (value: number) => void;
+	add64: (value: bigint) => void;
+	encrypt: () => Promise<EncryptedInputHandles>;
 };
 
-type FheInstance = {
-  createEncryptedInput: (contract: `0x${string}`, bettor: `0x${string}`) => FheEncryptedInput;
-};
+const RELAYER_BUNDLE_ENTRY = new URL(
+	"../../node_modules/@zama-fhe/relayer-sdk/bundle/relayer-sdk-js.js",
+	import.meta.url
+).href;
 
+const store = () => useEncryptionStore.getState();
+
+let relayerModulePromise: Promise<RelayerModule> | null = null;
 let fheInstance: FheInstance | null = null;
-let isMockMode = false;
+let initPromise: Promise<FheInstance> | null = null;
 
-const toHandle = (value: bigint) => `0x${value.toString(16).padStart(64, "0")}` as `0x${string}`;
+async function loadRelayerModule(): Promise<RelayerModule> {
+	if (!relayerModulePromise) {
+		relayerModulePromise = import(
+			/* @vite-ignore */
+			RELAYER_BUNDLE_ENTRY
+		) as Promise<RelayerModule>;
+	}
+	return relayerModulePromise;
+}
 
-const createMockInstance = (): FheInstance => ({
-  createEncryptedInput: () => {
-    const handles: `0x${string}`[] = ["0x0", "0x0"];
-    let outcome: `0x${string}` = handles[0];
-    let stake: `0x${string}` = handles[1];
+async function initFheInstance() {
+	if (fheInstance) {
+		return fheInstance;
+	}
 
-    return {
-      add32: (value: number) => {
-        outcome = toHandle(BigInt(value));
-        handles[0] = outcome;
-      },
-      add64: (value: bigint) => {
-        stake = toHandle(value);
-        handles[1] = stake;
-      },
-      async encrypt() {
-        return {
-          handles: [outcome, stake],
-          inputProof: new Uint8Array()
-        };
-      }
-    };
-  }
-});
+	if (initPromise) {
+		return initPromise;
+	}
 
-async function loadSdkFromCdn() {
-  try {
-    console.log("[FHE] Loading Relayer SDK from CDN...");
-    // Load SDK from Zama CDN
-    const sdk: any = await import("https://cdn.zama.ai/relayer-sdk-js/0.2.0/relayer-sdk-js.js");
-    const { initSDK, createInstance, SepoliaConfig } = sdk;
+	store().setWasmStatus("loading", "Initializing FHE WebAssembly runtime…");
 
-    console.log("[FHE] Initializing WASM...");
-    await initSDK();
+	try {
+		console.log("[FHE] Initializing SDK...");
+		initPromise = (async () => {
+			const sdk = await loadRelayerModule();
+			await sdk.initSDK();
+			store().setWasmStatus("ready", "WASM runtime ready");
+			store().setInstanceStatus("loading", "Requesting Sepolia public parameters…");
 
-    console.log("[FHE] Creating FHE instance with Sepolia config");
-    const instance = await createInstance(SepoliaConfig);
+			console.log("[FHE] Creating FHE instance with Sepolia config");
+			const instance = await sdk.createInstance(sdk.SepoliaConfig);
+			console.log("[FHE] Instance created successfully");
+			fheInstance = instance;
+			store().setInstanceStatus("ready", "FHE instance ready");
+			store().setGatewayStatus("online", "Gateway reachable");
+			return instance;
+		})();
 
-    console.log("[FHE] Instance created successfully");
-    return instance as FheInstance;
-  } catch (err: any) {
-    console.error("[FHE] SDK loading failed:", err);
-    console.warn("[FHE] Falling back to mock encryption");
-    isMockMode = true;
-    return null;
-  }
+		return await initPromise;
+	} catch (error) {
+		console.error("[FHE] SDK initialization failed:", error);
+		store().setWasmStatus("error", "Failed to initialise the FHE SDK");
+		store().setInstanceStatus("error", "FHE instance unavailable");
+		store().setGatewayStatus("error", "Gateway unreachable");
+		initPromise = null;
+		throw error;
+	} finally {
+		initPromise = null;
+	}
 }
 
 export async function ensureFheInstance(): Promise<FheInstance> {
-  if (fheInstance) {
-    return fheInstance;
-  }
+	if (fheInstance) {
+		return fheInstance;
+	}
 
-  const instance = await loadSdkFromCdn();
-  if (!instance) {
-    fheInstance = createMockInstance();
-    return fheInstance;
-  }
+	return initFheInstance();
+}
 
-  fheInstance = instance;
-  return fheInstance;
+export function getFheInstance() {
+	return fheInstance;
 }
 
 export async function encryptBetPayload(
-  contractAddress: `0x${string}`,
-  bettor: `0x${string}`,
-  outcomeId: number,
-  stakeWei: bigint
+	contractAddress: `0x${string}`,
+	bettor: `0x${string}`,
+	outcomeId: number,
+	stakeWei: bigint
 ) {
-  const instance = await ensureFheInstance();
-  const input = instance.createEncryptedInput(contractAddress, bettor);
-  input.add32(outcomeId);
-  input.add64(stakeWei);
-  const { handles, inputProof } = await input.encrypt();
+	const instance = await ensureFheInstance();
+	const input: FheEncryptedInput = instance.createEncryptedInput(contractAddress, bettor);
+	input.add32(outcomeId);
+	input.add64(stakeWei);
+	const { handles, inputProof } = await input.encrypt();
 
-  // Ensure handles are properly formatted as hex strings
-  const ensureHexString = (value: any): `0x${string}` => {
-    if (typeof value === "string") {
-      return value.startsWith("0x") ? value as `0x${string}` : `0x${value}` as `0x${string}`;
-    }
-    // If it's a Uint8Array, convert to hex using ethers hexlify
-    if (value instanceof Uint8Array) {
-      return hexlify(value) as `0x${string}`;
-    }
-    // If it's a bigint, convert to hex
-    if (typeof value === "bigint") {
-      return `0x${value.toString(16).padStart(64, "0")}` as `0x${string}`;
-    }
-    // Fallback: try to convert to string
-    console.warn(`[FHE] Unexpected handle type: ${typeof value}, value:`, value);
-    return hexlify(value) as `0x${string}`;
-  };
+	console.log("[FHE] Raw encrypted data:", {
+		handlesType: Array.isArray(handles) ? "array" : typeof handles,
+		handlesLength: Array.isArray(handles) ? handles.length : "N/A",
+		handle0Type: typeof handles[0],
+		handle0Value: handles[0],
+		handle1Type: typeof handles[1],
+		handle1Value: handles[1],
+		inputProofType: typeof inputProof,
+		inputProofLength: inputProof instanceof Uint8Array ? inputProof.length : "N/A"
+	});
 
-  return {
-    encryptedOutcome: ensureHexString(handles[0]),
-    encryptedStake: ensureHexString(handles[1]),
-    proof: inputProof
-  };
+	const ensureHexString = (value: unknown): `0x${string}` => {
+		if (typeof value === "string") {
+			return value.startsWith("0x") ? (value as `0x${string}`) : (`0x${value}` as `0x${string}`);
+		}
+
+		if (value instanceof Uint8Array) {
+			return toHex(value);
+		}
+
+		if (typeof value === "bigint") {
+			return `0x${value.toString(16).padStart(64, "0")}` as `0x${string}`;
+		}
+
+		console.warn("[FHE] Unexpected handle type:", value);
+		return toHex(value as Parameters<typeof toHex>[0]);
+	};
+
+	const result = {
+		encryptedOutcome: ensureHexString(handles[0]),
+		encryptedStake: ensureHexString(handles[1]),
+		proof: inputProof
+	};
+
+	console.log("[FHE] Converted encrypted data:", {
+		encryptedOutcome: result.encryptedOutcome,
+		encryptedStake: result.encryptedStake,
+		proofType: typeof result.proof,
+		proofLength:
+			result.proof instanceof Uint8Array
+				? result.proof.length
+				: typeof result.proof === "string"
+					? result.proof.length
+					: "N/A"
+	});
+
+	return result;
 }
 
 export function buildCommitment(
-  encryptedOutcome: `0x${string}`,
-  encryptedStake: `0x${string}`,
-  bettor: `0x${string}`
+	encryptedOutcome: `0x${string}`,
+	encryptedStake: `0x${string}`,
+	bettor: `0x${string}`
 ) {
-  return keccak256(
-    AbiCoder.defaultAbiCoder().encode(["bytes32", "bytes32", "address"], [encryptedOutcome, encryptedStake, bettor])
-  );
-}
-
-export function isMockEncryption() {
-  return isMockMode;
+	return keccak256(
+		encodeAbiParameters(
+			[
+				{ type: "bytes32" },
+				{ type: "bytes32" },
+				{ type: "address" }
+			],
+			[encryptedOutcome, encryptedStake, bettor]
+		)
+	);
 }

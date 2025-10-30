@@ -1,7 +1,7 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
-import { formatEther } from "ethers";
+import { formatEther } from "viem";
 
 export type BetHistoryItem = {
   ticketId?: bigint;

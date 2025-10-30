@@ -15,7 +15,14 @@
   },
   "dependencies": {
     "@fhevm/solidity": "^0.8.0",
-    "@openzeppelin/contracts": "^5.1.0"
+    "@openzeppelin/contracts": "^5.1.0",
+    "@zama-fhe/relayer-sdk": "^0.2.0",
+    "buffer": "^6.0.3",
+    "crypto-browserify": "^3.12.1",
+    "path-browserify": "^1.0.1",
+    "stream-browserify": "^3.0.0",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.5.0"
   },
   "devDependencies": {
     "@fhevm/hardhat-plugin": "^0.1.0",

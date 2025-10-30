@@ -12,11 +12,15 @@ const config: HardhatUserConfig = {
   solidity: {
     version: "0.8.24",
     settings: {
+      metadata: {
+        bytecodeHash: "none"
+      },
       optimizer: {
         enabled: true,
-        runs: 200
+        runs: 800
       },
-      evmVersion: "cancun"
+      evmVersion: "cancun",
+      viaIR: true // Enable viaIR to fix "Stack too deep" error
     }
   },
   defaultNetwork: "hardhat",

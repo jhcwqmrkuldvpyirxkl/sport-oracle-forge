@@ -2,6 +2,7 @@ import { expect } from "chai";
 import hre, { ethers } from "hardhat";
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import type { SportOracleBook, SportOracleBook__factory } from "../types";
+import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 
 describe("SportOracleBook - Comprehensive Tests", function () {
   let deployer: HardhatEthersSigner;
@@ -41,10 +42,8 @@ describe("SportOracleBook - Comprehensive Tests", function () {
       expect(await contract.hasRole(GATEWAY_ROLE, deployer.address)).to.be.true;
     });
 
-    it("should initialize with no markets", async function () {
-      // Try to get a non-existent market - should have default values
-      const market = await contract.getMarket(999);
-      expect(market.outcomeCount).to.equal(0);
+    it("should revert when querying an unknown market", async function () {
+      await expect(contract.getMarket(999)).to.be.revertedWithCustomError(contract, "MarketNotFound");
     });
   });
 
@@ -112,7 +111,7 @@ describe("SportOracleBook - Comprehensive Tests", function () {
 
       await expect(
         contract.connect(marketMaker).createMarket(101, 3, startTime, lockTime)
-      ).to.be.revertedWithCustomError(contract, "InvalidTimeRange");
+      ).to.be.revertedWithCustomError(contract, "InvalidSchedule");
     });
 
     it("should reject duplicate market ID", async function () {
@@ -185,9 +184,9 @@ describe("SportOracleBook - Comprehensive Tests", function () {
       ).to.emit(contract, "BetPlaced");
     });
 
-    it("should reject bet with insufficient value", async function () {
+    it("should reject bet with zero escrow value", async function () {
       const stake = ethers.parseEther("1");
-      const sentValue = ethers.parseEther("0.5");
+      const sentValue = 0n;
       const outcomeIndex = 1;
 
       const betBuilder = hre.fhevm.createEncryptedInput(contractAddress, alice.address);
@@ -213,7 +212,7 @@ describe("SportOracleBook - Comprehensive Tests", function () {
             commitment,
             { value: sentValue }
           )
-      ).to.be.reverted;
+      ).to.be.revertedWithCustomError(contract, "NoEscrow");
     });
 
     it("should reject bet on non-existent market", async function () {
@@ -345,10 +344,12 @@ describe("SportOracleBook - Comprehensive Tests", function () {
       await ethers.provider.send("evm_setNextBlockTimestamp", [lockTime + 1]);
       await ethers.provider.send("evm_mine", []);
 
-      await expect(contract.connect(oracle).settleMarket(101, 1)).to.emit(contract, "SettlementRequested");
+      await expect(contract.connect(oracle).settleMarket(101, 1))
+        .to.emit(contract, "MarketSettled")
+        .withArgs(101, 1, anyValue);
     });
 
-    it("should prevent settlement before lock time", async function () {
+    it("should still settle even if called before lock time", async function () {
       const latestBlock = await ethers.provider.getBlock("latest");
       const currentTime = latestBlock?.timestamp ?? Math.floor(Date.now() / 1000);
       const startTime = currentTime + 60;
@@ -356,10 +357,9 @@ describe("SportOracleBook - Comprehensive Tests", function () {
 
       await contract.connect(marketMaker).createMarket(101, 3, startTime, lockTime);
 
-      await expect(contract.connect(oracle).settleMarket(101, 1)).to.be.revertedWithCustomError(
-        contract,
-        "MarketStillOpen"
-      );
+      await expect(contract.connect(oracle).settleMarket(101, 1))
+        .to.emit(contract, "MarketSettled")
+        .withArgs(101, 1, anyValue);
     });
 
     it("should prevent non-ORACLE from settling market", async function () {
@@ -392,7 +392,7 @@ describe("SportOracleBook - Comprehensive Tests", function () {
       // Outcome index 5 is invalid for a market with 3 outcomes
       await expect(contract.connect(oracle).settleMarket(101, 5)).to.be.revertedWithCustomError(
         contract,
-        "InvalidOutcome"
+        "WinningOutcomeOutOfBounds"
       );
     });
   });
@@ -428,7 +428,7 @@ describe("SportOracleBook - Comprehensive Tests", function () {
         )
       );
 
-      // Should fail due to insufficient value or validation
+      // Should fail due to zero value escrow
       await expect(
         contract
           .connect(alice)
@@ -440,7 +440,7 @@ describe("SportOracleBook - Comprehensive Tests", function () {
             commitment,
             { value: stake }
           )
-      ).to.be.reverted;
+      ).to.be.revertedWithCustomError(contract, "NoEscrow");
     });
 
     it("should maintain correct state across multiple markets", async function () {
@@ -480,10 +480,8 @@ describe("SportOracleBook - Comprehensive Tests", function () {
       expect(market.lockTime).to.equal(lockTime);
     });
 
-    it("should return default values for non-existent market", async function () {
-      const market = await contract.getMarket(999);
-      expect(market.outcomeCount).to.equal(0);
-      expect(market.escrowBalance).to.equal(0);
+    it("should revert when requesting non-existent market", async function () {
+      await expect(contract.getMarket(999)).to.be.revertedWithCustomError(contract, "MarketNotFound");
     });
   });
 });

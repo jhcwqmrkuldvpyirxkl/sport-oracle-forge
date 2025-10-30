@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { MarketSummary } from "@/hooks/useMarkets";
 import { format } from "date-fns";
 import { Clock, Users, ShieldCheck } from "lucide-react";
-import { formatEther } from "ethers";
+import { formatEther } from "viem";
 
 type MarketListProps = {
   markets: MarketSummary[];
